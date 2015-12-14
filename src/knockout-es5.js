@@ -437,6 +437,79 @@
       notifyWhenPresentOrFutureArrayValuesMutate: notifyWhenPresentOrFutureArrayValuesMutate,
       isTracked: isTracked
     };
+
+    // Custom Binding Provider
+    // -------------------
+    //
+    // To ensure that when using this plugin any custom bindings are provided with the observable
+    // rather than only the value of the property, a custom binding provider supplies bindings with
+    // actual observable values. The built in bindings use Knockout's internal `_ko_property_writers`
+    // feature to be able to write back to the property, but custom bindings may not be able to use
+    // that, especially if they use an options object.
+
+    function CustomBindingProvider(providerToWrap) {
+       this.bindingCache = {};
+       this._providerToWrap = providerToWrap;
+       this._nativeBindingProvider = new ko.bindingProvider();
+    }
+
+    CustomBindingProvider.prototype.nodeHasBindings = function() {
+       return this._providerToWrap.nodeHasBindings.apply(this._providerToWrap, arguments);
+    };
+
+    CustomBindingProvider.prototype.getBindingAccessors = function(node, bindingContext) {
+       var bindingsString = this._nativeBindingProvider.getBindingsString(node, bindingContext);
+       return bindingsString ? this.parseBindingsString(bindingsString, bindingContext, node, {'valueAccessors':true}) : null;
+    };
+
+    CustomBindingProvider.prototype.parseBindingsString = function(bindingsString, bindingContext, node, options) {
+       try {
+          var bindingFunction = createBindingsStringEvaluatorViaCache(bindingsString, this.bindingCache, options);
+          return bindingFunction(bindingContext, node);
+       } catch (ex) {
+          ex.message = 'Unable to parse bindings.\nBindings value: ' + bindingsString + '\nMessage: ' + ex.message;
+          throw ex;
+       }
+    };
+
+    function preProcessBindings(bindingsStringOrKeyValueArray, bindingOptions) {
+       bindingOptions = bindingOptions || {};
+
+       function processKeyValue(key, val) {
+         if(val.match(/^\[/)){
+           // Will work but read only observable
+			  resultStrings.push(key + ':' + val);
+         }else{
+           resultStrings.push(key + ':ko.getObservable($data,"' + val + '")||' + val);
+         }
+
+       }
+
+       var resultStrings = [],
+          keyValueArray = typeof bindingsStringOrKeyValueArray === 'string' ?
+            ko.expressionRewriting.parseObjectLiteral(bindingsStringOrKeyValueArray) : bindingsStringOrKeyValueArray;
+
+       keyValueArray.forEach(function(keyValue) {
+          processKeyValue(keyValue.key || keyValue.unknown, keyValue.value);
+       });
+       return ko.expressionRewriting.preProcessBindings(resultStrings.join(','), bindingOptions);
+    }
+
+    function createBindingsStringEvaluatorViaCache(bindingsString, cache, options) {
+       var cacheKey = bindingsString + (options && options.valueAccessors || '');
+       return cache[cacheKey] || (cache[cacheKey] = createBindingsStringEvaluator(bindingsString, options));
+    }
+
+    function createBindingsStringEvaluator(bindingsString, options) {
+       var rewrittenBindings = preProcessBindings(bindingsString, options),
+          functionBody = 'with($context){with($data||{}){return{' + rewrittenBindings + '}}}';
+        /* jshint -W054 */
+       return new Function('$context', '$element', functionBody);
+    }
+
+    ko.es5BindingProvider = CustomBindingProvider;
+
+    ko.bindingProvider.instance = new CustomBindingProvider(ko.bindingProvider.instance);
   }
 
   // Determines which module loading scenario we're in, grabs dependencies, and attaches to KO
