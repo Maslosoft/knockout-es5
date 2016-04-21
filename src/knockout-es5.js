@@ -476,9 +476,10 @@
        bindingOptions = bindingOptions || {};
 
        function processKeyValue(key, val) {
+         // Handle arrays if value starts with bracket
          if(val.match(/^\[/)){
-           // Will work but read only observable
-			  resultStrings.push(key + ':' + val);
+           // This is required or will throw errors
+           resultStrings.push(key + ':ko.observableArray(' + val + ')');
          }else{
            resultStrings.push(key + ':ko.getObservable($data,"' + val + '")||' + val);
          }
