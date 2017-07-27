@@ -486,6 +486,11 @@
            // This is required or will throw errors
            resultStrings.push(key + ':ko.observableArray(' + val + ')');
          }else{
+           // Trim out whitespace after opening brackets (might be in some cases), 
+           // or it would will cause parse error in createBindingsStringEvaluator
+           if(val.match(/^\{\s*/)){
+             val = val.replace(/^\{\s*/, '{');
+           }
            resultStrings.push(key + ':ko.getObservable($data,"' + val + '")||' + val);
          }
 
